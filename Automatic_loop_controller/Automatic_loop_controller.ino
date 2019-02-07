@@ -1,10 +1,12 @@
 #include <SoftwareSerial.h>
 #include <LiquidCrystal.h>
+#include <Stepper.h>
 #include "FT817.h"
 
 const int rxPin = 52;       // These are the transmit and receive pins so that the 
 const int txPin = 53;       // Arduino can talk to the FT-817
-
+const int stepsPerRevolution = 200;  // NEMA-17 4-wire bipolar stepper (1.8 degrees per step)
+                                     // Coil #1: Red & Yellow wire pair. Coil #2 Green & Brown/Gray wire pair.
 int swr_bluePin = 43;
 int swr_greenPin = 42;
 int swr_redPin = 41;
@@ -103,7 +105,7 @@ void loop()
     }
   } else {
     if (tuneUpButtonState == HIGH) {
-      
+
     } else {
       Serial.println("Slow Manual Tune && Tune Up Button have been pressed!");
     }
@@ -195,4 +197,3 @@ int lcdPrint(unsigned long current_freq, int fwd, int rev, float swr, int radio_
     lcd.print("FT-817 SWR: ");
     lcd.print(radio_swr);
 }
-
