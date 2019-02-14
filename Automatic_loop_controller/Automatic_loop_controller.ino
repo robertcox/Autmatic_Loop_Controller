@@ -1,12 +1,15 @@
+#include <AccelStepper.h>
+#include <MultiStepper.h>
 #include <SoftwareSerial.h>
 #include <LiquidCrystal.h>
-#include <Stepper.h>
 #include "FT817.h"
 
 const int rxPin = 52;       // These are the transmit and receive pins so that the 
 const int txPin = 53;       // Arduino can talk to the FT-817
-const int stepsPerRevolution = 200;  // NEMA-17 4-wire bipolar stepper (1.8 degrees per step)
-                                     // Coil #1: Red & Yellow wire pair. Coil #2 Green & Brown/Gray wire pair.
+const int Steps = 200;          // NEMA-17 4-wire bipolar stepper (1.8 degrees per step)
+                            // Coil #1: Red & Yellow wire pair. Coil #2 Green & Brown/Gray wire pair.
+AccelStepper stepper(4, 36, 37, 38, 39);
+
 int swr_bluePin = 43;
 int swr_greenPin = 42;
 int swr_redPin = 41;
@@ -19,6 +22,14 @@ int auto_tunePin = 45;
 int slow_manualTunePin = 44;
 int tune_upPin = 42;
 int tune_downPin = 43;
+
+int limit_switchOne = 30;
+int limit_switchTwo = 31;
+int switchOneState = LOW;
+int switchTwoState = LOW;
+long time = 0;         // the last time the output pin was toggled
+long debounce = 200;   // the debounce time, increase if the output flickers
+
 
 int autoTuneButtonState = 0;
 int slowManualTuneButtonState = 0;
@@ -64,15 +75,38 @@ void setup()
   pinMode(xmit_redPin, OUTPUT);
   pinMode(xmit_greenPin, OUTPUT);
   pinMode(xmit_bluePin, OUTPUT);
+  pinMode(limit_switchOne,INPUT);
+  pinMode(limit_switchTwo,INPUT);
   
   pinMode(auto_tunePin, INPUT);
   pinMode(slow_manualTunePin, INPUT);
   pinMode(tune_upPin, INPUT);
   pinMode(tune_downPin, INPUT);
+  stepper.setMaxSpeed(1000);
+  stepper.setAcceleration(100.0);
+  stepper.setSpeed(50);
+  
+
 }
 
 void loop()
 { 
+  Serial.println("Top of the loop");
+
+  switchOneState = digitalRead(limit_switchOne);
+  if (switchOneState== HIGH){
+    Serial.println("Switch One is HIGH"); 
+  } else {
+    Serial.println("Switch One is LOW");     
+  }
+  switchTwoState = digitalRead(limit_switchTwo);
+  if (switchOneState== HIGH){
+    Serial.println("Switch Two is HIGH"); 
+  } else {
+    Serial.println("Switch Two is LOW");     
+  }
+
+  
   autoTuneButtonState = digitalRead(auto_tunePin);
   slowManualTuneButtonState = digitalRead(slow_manualTunePin);
   tuneUpButtonState = digitalRead(tune_upPin);
@@ -97,23 +131,34 @@ void loop()
       
     } else {
       Serial.println("Only the Tune Up Button has been pressed!");
+//      stepper.moveTo(200);
+      stepper.runSpeed();
+//      delay(5);
     }
     if (tuneDownButtonState == HIGH) {
       
     } else {
       Serial.println("Only the Tune Down Button has been pressed!");
+//      stepper.moveTo(-200);
+      stepper.runSpeed();
+//      delay(5);
     }
   } else {
     if (tuneUpButtonState == HIGH) {
 
     } else {
       Serial.println("Slow Manual Tune && Tune Up Button have been pressed!");
+      stepper.moveTo(20);
+      stepper.run();
+      delay(5);
     }
     if (tuneDownButtonState == HIGH) {
       
     } else {
       Serial.println("Slow Manual Tune && Tune Down Buttons have been pressed!");
-  
+      stepper.moveTo (-20);
+      stepper.run();
+      delay(5);
     }
   }
 
