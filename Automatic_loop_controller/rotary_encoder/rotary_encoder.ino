@@ -2,7 +2,7 @@
 const int PinA = 2;
 
 // Used for reading DT signal
-const int PinB = 3;
+const int PinB = 4;
 
 // Used for the push button switch
 const int PinSW = 8;
@@ -33,10 +33,9 @@ void isr ()  {
     // Restrict value from 0 to +100
     //virtualPosition = min(100, max(0, virtualPosition));
 
-
+    // Keep track of when we were here last (no more than every 5ms)
+    lastInterruptTime = interruptTime;
   }
-  // Keep track of when we were here last (no more than every 5ms)
-  lastInterruptTime = interruptTime;
 }
 
 // ------------------------------------------------------------------
@@ -44,27 +43,31 @@ void isr ()  {
 // ------------------------------------------------------------------
 void setup() {
   // Just whilst we debug, view output on serial monitor
-  Serial.begin(115200);
+  Serial.begin(9600);
 
   // Rotary pulses are INPUTs
   pinMode(PinA, INPUT);
+  digitalWrite(PinA, HIGH);       // turn on pull-up resistor
   pinMode(PinB, INPUT);
+  digitalWrite(PinB, HIGH);       // turn on pull-up resistor
 
   // Switch is floating so use the in-built PULLUP so we don't need a resistor
   pinMode(PinSW, INPUT_PULLUP);
 
   // Attach the routine to service the interrupts
   attachInterrupt(digitalPinToInterrupt(PinA), isr, LOW);
+  delay(100);
 
   // Ready to go!
   Serial.println("Start");
+  delay(100);
 }
 
 // ------------------------------------------------------------------
 // MAIN LOOP     MAIN LOOP     MAIN LOOP     MAIN LOOP     MAIN LOOP
 // ------------------------------------------------------------------
 void loop() {
-
+//    Serial.println("Looping");
   // Is someone pressing the rotary switch?
   if ((!digitalRead(PinSW))) {
     virtualPosition = 50;
