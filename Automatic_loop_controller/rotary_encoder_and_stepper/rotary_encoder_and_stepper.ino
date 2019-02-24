@@ -4,7 +4,7 @@
 
 const int rxPin = 52;       // These are the transmit and receive pins so that the 
 const int txPin = 53;       // Arduino can talk to the FT-817
-int auto_tunePin = 45;
+int tunePin = 45;
 int slow_manualTunePin = 44;
 int tune_upPin = 43;
 int tune_downPin = 42;
@@ -34,8 +34,6 @@ long currentPosition;
 long stepsToGo;
 long previousStepsToGo;
 
-
-
 // Used for generating interrupts using CLK signal
 const int PinA = 2;
 
@@ -54,15 +52,15 @@ volatile int virtualPosition = 50;
 long time = 0;         // the last time the output pin was toggled
 long debounce = 200;   // the debounce time, increase if the output flickers
 
-
-int autoTuneButtonState = 0;
+int tuneButtonState = 0;
 int slowManualTuneButtonState = 0;
 int tuneUpButtonState = 0;
 int tuneDownButtonState = 0;
 
 int analogPinFwd = A14;     // forward voltage from the SWR bridge is set to pin A14
 int analogPinRev = A15;     // reverse voltage from the SWR bridge is set to pin A15
-                       
+
+bool pttFlag = LOW;
 double fwd = 0;             // variable to store the forward voltage value from the SWR bridge.
 double rev = 0;             // variable to store the reverse voltage value from the SWR bridge.
 float swr = 0.0;            // The calculated SWR will be a float
@@ -80,28 +78,30 @@ const int numCols = 16;
 
 FT817 radio;                // The object will be referred to as radio.
 
-
-
 // ------------------------------------------------------------------
 // INTERRUPT     INTERRUPT     INTERRUPT     INTERRUPT     INTERRUPT
 // ------------------------------------------------------------------
 void isr ()  {
   static unsigned long lastInterruptTime = 0;
   unsigned long interruptTime = millis();
-
+  cwHomeSwitchState = digitalRead(cw_home_switch);
+  ccwHomeSwitchState = digitalRead(ccw_home_switch);
+  
   // If interrupts come faster than 5ms, assume it's a bounce and ignore
   if (interruptTime - lastInterruptTime > 5) {
     if (digitalRead(PinB) == LOW)
     {
-      virtualPosition-- ; // Could be -5 or -10
+      if (ccwHomeSwitchState == HIGH){
+        digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
+        moveStepper(5,LOW);
+      }
     }
     else {
-      virtualPosition++ ; // Could be +5 or +10
+      if (cwHomeSwitchState == HIGH){
+        digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
+        moveStepper(5,HIGH);
+      }
     }
-
-    // Restrict value from 0 to +100
-    //virtualPosition = min(100, max(0, virtualPosition));
-
     // Keep track of when we were here last (no more than every 5ms)
     lastInterruptTime = interruptTime;
   }
@@ -144,13 +144,13 @@ void setup() {
   lcd.setCursor(0, 0);                  // Set the LCD's cursor to column 0 row 0.
   lcd.print("817 CAT Control");         // Display this message on the LCD.
   radio.setFreq(current_freq);          // Set the FT-817's frequency to current_freq.
-  radio.setMode(FT817_MODE_FM);         // Set the FT-817's mode to FM.
+//  radio.setMode(FT817_MODE_FM);         // Set the FT-817's mode to FM.
   current_freq = 1417500;               // Set the current frequency to the middle of the 20 meter band.
 
   pinMode(cw_home_switch,INPUT);
   pinMode(ccw_home_switch,INPUT);
   
-  pinMode(auto_tunePin, INPUT);
+  pinMode(tunePin, INPUT);
   pinMode(slow_manualTunePin, INPUT);
   pinMode(tune_upPin, INPUT);
   pinMode(tune_downPin, INPUT);
@@ -165,19 +165,13 @@ void setup() {
 // ------------------------------------------------------------------
 void loop() {
   cwHomeSwitchState = digitalRead(cw_home_switch);
-  if (cwHomeSwitchState != HIGH){
-    Serial.println("Switch One is ENGAGED"); 
-  } else {
-    
-  }
-  cwHomeSwitchState = digitalRead(ccw_home_switch);
-  if (cwHomeSwitchState != HIGH){
-    Serial.println("Switch Two is ENGAGED"); 
-  } else {
+  ccwHomeSwitchState = digitalRead(ccw_home_switch);
+  tuneButtonState = digitalRead(tunePin);
+  slowManualTuneButtonState = digitalRead(slow_manualTunePin);
+  tuneUpButtonState = digitalRead(tune_upPin);
+  tuneDownButtonState = digitalRead(tune_downPin);
 
-  }
 
-//    Serial.println("Looping");
   // Is someone pressing the rotary switch?
   if ((!digitalRead(PinSW))) {
     virtualPosition = 50;
@@ -186,36 +180,24 @@ void loop() {
     Serial.println("Reset");
   }
 
-  // If the current rotary switch position has changed then update everything
-  if (virtualPosition != lastCount) {
-    // Write out to serial monitor the value and direction
-    if(virtualPosition > lastCount){
-      Serial.print("Up  :");
-      Serial.println(virtualPosition);
-      digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
-      moveStepper(100,HIGH);   
-    } else {
-      Serial.print("Down:");
-      Serial.println(virtualPosition);          
-      digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
-      moveStepper(100,LOW); 
-    }
-    
-    // Keep track of this new value
-    lastCount = virtualPosition ;
-  }
-
-  autoTuneButtonState = digitalRead(auto_tunePin);
-  slowManualTuneButtonState = digitalRead(slow_manualTunePin);
-  tuneUpButtonState = digitalRead(tune_upPin);
-  tuneDownButtonState = digitalRead(tune_downPin);
   // Auto tune functionality. Switch to FM mode, power to low, PTT
   // read the SWR and adjust the stepper motor to tune the capacitor.
-  if (autoTuneButtonState == HIGH) {
-    
-  } else {
-    Serial.println("Auto Tune Button has been pressed!");
-
+  if (tuneButtonState==LOW) {
+    Serial.println("Tune Button has been pressed!");
+    if(!pttFlag)
+      mode = radio.getMode();               // Get the FT-817's current mode
+    if(mode != FT817_MODE_FM){            // If the mode is not set to FM then set it to FM
+      radio.setMode(FT817_MODE_FM);  
+    }
+    radio.setPTTOn();
+    pttFlag = HIGH;
+  }
+  else if(pttFlag==HIGH && tuneButtonState==HIGH) {
+    Serial.println("Tune Button has been released!");
+    radio.setPTTOff();
+    delay(10);
+    radio.setMode(mode);
+    pttFlag = LOW;  
   }
 
   // Manual tune functionality.
@@ -229,41 +211,56 @@ void loop() {
       
     } else {
       Serial.println("Only the Tune Up Button has been pressed!");
-      digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
-      moveStepper(50,HIGH);   
+      if (cwHomeSwitchState == HIGH){
+        digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
+        moveStepper(50,HIGH);
+      }
+      else {
+        Serial.println("CW Limit switch is ENGAGED - the stepper will not move CW.");
+      }
     }
     if (tuneDownButtonState == HIGH) {
       
     } else {
       Serial.println("Only the Tune Down Button has been pressed!");
-      digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
-      moveStepper(50,LOW);   
+      if (ccwHomeSwitchState == HIGH){
+        digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
+        moveStepper(50,LOW);
+      }
+      else {
+        Serial.println("CCW Limit switch is ENGAGED - the stepper will not move CCW."); 
+      }
+
     }
   } else {
     if (tuneUpButtonState == HIGH) {
 
     } else {
       Serial.println("Slow Manual Tune && Tune Up Button have been pressed!");
-      digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
-      moveStepper(10,HIGH);   
+      if (cwHomeSwitchState == HIGH){
+        digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
+        moveStepper(10,HIGH);   
+      }
+      else {
+        Serial.println("CW Limit switch is ENGAGED - the stepper will not move CW.");
+      }
     }
     if (tuneDownButtonState == HIGH) {
       
     } else {
       Serial.println("Slow Manual Tune && Tune Down Buttons have been pressed!");
-      digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
-      moveStepper(10,LOW);   
+      if (ccwHomeSwitchState == HIGH){
+        digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
+        moveStepper(10,LOW);
+      }
+      else {
+        Serial.println("CCW Limit switch is ENGAGED - the stepper will not move CCW."); 
+      }
     }
   }
 
-
   current_freq = radio.getFreqMode("freq"); // Get the FT-817's current frequency
   
-  mode = radio.getMode();               // Get the FT-817's current mode
-
-  if(mode != FT817_MODE_FM){            // If the mode is not set to FM then set it to FM
-    radio.setMode(FT817_MODE_FM);  
-  }
 
   // Is the radio transmitting? 
   // If it is, then read the SWR of the radio and of the bridge.
