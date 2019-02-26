@@ -2,88 +2,78 @@
 #include <LiquidCrystal.h>
 #include "FT817.h"
 
-const int rxPin = 52;       // These are the transmit and receive pins so that the 
-const int txPin = 53;       // Arduino can talk to the FT-817
-int tunePin = 45;
-int slow_manualTunePin = 44;
-int tune_upPin = 43;
-int tune_downPin = 42;
+//Declare pin functions on the Sparkfun Easydriver
+#define stp 36     // step pin
+#define dir 37     // direction pin
+#define MS1 38     // MS1 pin
+#define MS2 39     // MS2 pin
+#define EN  35     // enable pin
+#define RST 34     // reset pin
+#define SLP 28     // sleep pin
 
-char line0[17]; 
-char line1[17];
-char line2[17]; 
-char line3[17];
-
-//Declare pin functions on Redboard
-#define stp 36
-#define dir 37
-#define MS1 38
-#define MS2 39
-#define EN  35
-#define RST 34
-#define SLP 28
-
-#define  cw_home_switch 31 // Pin 31 connected to home micro switch (this will be the 0 position)
-#define  ccw_home_switch 30 // Pin 30 connected to initial homing micro switch (this will be variable)
+#define   cw_home_switch 31      // Pin 31 connected to home micro switch (this will be the 0 position)
+#define  ccw_home_switch 30      // Pin 30 connected to initial homing micro switch (this will be variable)
 int cwHomeSwitchState  = LOW;
 int ccwHomeSwitchState = LOW;
 
-// Stepper Travel Variables
-long destination;        // Used to store the X value entered in the Serial Monitor
-int  move_finished=1;    // Used to check if move is completed
+const int rxPin              = 52;       // These are the transmit and receive pins so that the 
+const int txPin              = 53;       // Arduino can talk to the FT-817
+
+const int tunePin            = 45;       // Pushbutton pin for the Tune button
+const int slow_manualTunePin = 44;       // Pushbutton pin for the Slow Manual button
+const int tune_upPin         = 43;       // Pushbutton pin for the Tune Up button
+const int tune_downPin       = 42;       // Pushbutton pin for the Tune Down button
+
+char line0[17];      // definition for LCD line one of four
+char line1[17];      // definition for LCD line two of four
+char line2[17];      // definition for LCD line three of four
+char line3[17];      // definition for LCD line four of four
+
+// Stepper control variables
+int  move_finished=1;        // Used to check if move is completed
 bool  direction=HIGH;        // HIGH=clockwise; LOW=counter clockwise
-long initial_homing=-1;  // Used to home the cw rotation of the stepper at startup
-long distanceToGo;
-long currentPosition;
-long stepsToGo;
-long previousStepsToGo;
 
-// Used for generating interrupts using CLK signal
-const int PinA = 2;
+const int  PinA = 2;         // Used for generating interrupts using CLK signal
+const int  PinB = 4;         // Used for reading DT signal
+const int PinSW = 8;         // Used for the push button switch
 
-// Used for reading DT signal
-const int PinB = 4;
+long time = 0;               // the last time the output pin was toggled
+long debounce = 200;         // the debounce time, increase if the output flickers
 
-// Used for the push button switch
-const int PinSW = 8;
+int tuneButtonState = 0;     // initialization of the Tune button.
+int slowManualTuneButtonState = 0;  // initialization of the Slow Tune button
+int tuneUpButtonState = 0;   // initialization of the Tune Up button
+int tuneDownButtonState = 0; // initialization of the Tune Down button
 
-// Keep track of last rotary value
-int lastCount = 50;
+int analogPinFwd = A14;      // forward voltage from the SWR bridge is set to pin A14
+int analogPinRev = A15;      // reverse voltage from the SWR bridge is set to pin A15
 
-// Updated by the ISR (Interrupt Service Routine)
-volatile int virtualPosition = 50;
-
-long time = 0;         // the last time the output pin was toggled
-long debounce = 200;   // the debounce time, increase if the output flickers
-
-int tuneButtonState = 0;
-int slowManualTuneButtonState = 0;
-int tuneUpButtonState = 0;
-int tuneDownButtonState = 0;
-
-int analogPinFwd = A14;     // forward voltage from the SWR bridge is set to pin A14
-int analogPinRev = A15;     // reverse voltage from the SWR bridge is set to pin A15
-
-bool pttFlag = LOW;
-double fwd = 0;             // variable to store the forward voltage value from the SWR bridge.
-double rev = 0;             // variable to store the reverse voltage value from the SWR bridge.
-float swr = 0.0;            // The calculated SWR will be a float
-int radio_swr = 0;          // the FT-817 will report the values of the TX meter.
-                            // The SWR will be reported as an integer number.
-                            // From my experience this integer correlates to the number of bars
-                            // that are displayed on the FT-817's SWR meter.  
-unsigned long current_freq; // variable that contains the current frequency. 
-byte mode;                  // This is a variable to store the mode that the radio is in.
+bool  pttFlag = LOW;         // initialization of the PTT Flag
+double    fwd = 0;           // variable to store the forward voltage value from the SWR bridge.
+double    rev = 0;           // variable to store the reverse voltage value from the SWR bridge.
+float     swr = 0.0;         // The calculated SWR will be a float
+int radio_swr = 0;           // the FT-817 will report the values of the TX meter.
+                             // The SWR will be reported as an integer number.
+                             // From my experience this integer correlates to the number of bars
+                             // that are displayed on the FT-817's SWR meter.  
+                             
+unsigned long current_freq;  // variable that contains the FT-817's current frequency. 
+byte mode;                   // This is a variable to store the FT-817's mode.
 
 LiquidCrystal lcd(51, 50, 49, 48, 47, 46); // rs,e,d4,d5,d6,d7 - The setup of the LCD
 
-const int numRows = 4;      // I am using a 4x16 LCD
-const int numCols = 16;
+const int numRows = 4;       // I am using a 4x16 LCD
+const int numCols = 16;      // 
 
-FT817 radio;                // The object will be referred to as radio.
+FT817 radio;                 // The object will be referred to as radio.
 
 // ------------------------------------------------------------------
-// INTERRUPT     INTERRUPT     INTERRUPT     INTERRUPT     INTERRUPT
+//     **************   Interrupt Service Routine ************** 
+//  If the rotary encoder is moved an interrupt will trigger
+//  and this routine will service that interrupt.
+//  If turned, the direction is determined and the stepper
+//  will be moved slowly in the direction that the rotary
+//  encoder is moved. 
 // ------------------------------------------------------------------
 void isr ()  {
   static unsigned long lastInterruptTime = 0;
@@ -112,7 +102,12 @@ void isr ()  {
 }
 
 // ------------------------------------------------------------------
-// SETUP    SETUP    SETUP    SETUP    SETUP    SETUP    SETUP
+//  Initial Setup routine
+//    - initialize the Arduino Mega reference voltage
+//    - Setup the modes for the Easydriver, the limit switches,
+//        the rotary encoder, the interrupt service routine,
+//        the serial communication with the FT-817nd, and the
+//        the four control switches
 // ------------------------------------------------------------------
 void setup() {
   analogReference(INTERNAL2V56);        // sets the analog reference voltage to 2.56V (Arduino Mega only)
@@ -122,24 +117,31 @@ void setup() {
   pinMode(MS1, OUTPUT);
   pinMode(MS2, OUTPUT);
   pinMode(EN, OUTPUT);
+
+  
   resetEDPins(); //Set step, direction, microstep and enable pins to default states
   pinMode(ccw_home_switch, INPUT_PULLUP);
-  pinMode(cw_home_switch, INPUT_PULLUP);
+  pinMode( cw_home_switch, INPUT_PULLUP);
+  pinMode(ccw_home_switch, INPUT);
+  pinMode( cw_home_switch, INPUT);
   
   // Just whilst we debug, view output on serial monitor
   Serial.begin(9600);
 
-  // Rotary pulses are INPUTs
-  pinMode(PinA, INPUT);
-  digitalWrite(PinA, HIGH);       // turn on pull-up resistor
-  pinMode(PinB, INPUT);
-  digitalWrite(PinB, HIGH);       // turn on pull-up resistor
+  // Rotary encoder pulses are INPUTs
+  pinMode( PinA, INPUT);
+  pinMode( PinB, INPUT);
+  pinMode(PinSW, INPUT_PULLUP);   // Switch is floating use the in-built PULLUP resistor
 
-  // Switch is floating so use the in-built PULLUP so we don't need a resistor
-  pinMode(PinSW, INPUT_PULLUP);
+  digitalWrite(PinA,  HIGH);      // turn on pull-up resistor
+  digitalWrite(PinB,  HIGH);      // turn on pull-up resistor
 
-  // Attach the routine to service the interrupts
-  attachInterrupt(digitalPinToInterrupt(PinA), isr, LOW);
+  pinMode(           tunePin, INPUT);  
+  pinMode(slow_manualTunePin, INPUT);
+  pinMode(        tune_upPin, INPUT);
+  pinMode(      tune_downPin, INPUT);
+
+  attachInterrupt(digitalPinToInterrupt(PinA), isr, LOW);    // Attach the routine to service the interrupts
   delay(100);
   SoftwareSerial mySerial(rxPin,txPin); // Setup the serial communication of the Arduino to the FT-817.
   radio.assignSerial(mySerial);         // Assign the setup to my radio.
@@ -147,17 +149,8 @@ void setup() {
   lcd.begin(numCols, numRows);          // Setup the LCD
   lcd.setCursor(0, 0);                  // Set the LCD's cursor to column 0 row 0.
   lcd.print("817 CAT Control");         // Display this message on the LCD.
-//  radio.setMode(FT817_MODE_FM);         // Set the FT-817's mode to FM.
   current_freq = 1417500;               // Set the current frequency to the middle of the 20 meter band.
   radio.setFreq(current_freq);          // Set the FT-817's frequency to current_freq.
-
-  pinMode(cw_home_switch,INPUT);
-  pinMode(ccw_home_switch,INPUT);
-  
-  pinMode(tunePin, INPUT);
-  pinMode(slow_manualTunePin, INPUT);
-  pinMode(tune_upPin, INPUT);
-  pinMode(tune_downPin, INPUT);
 
   // Ready to go!
   Serial.println("Start");
@@ -165,21 +158,21 @@ void setup() {
 }
 
 // ------------------------------------------------------------------
-// MAIN LOOP     MAIN LOOP     MAIN LOOP     MAIN LOOP     MAIN LOOP
+// Main loop
 // ------------------------------------------------------------------
 void loop() {
-  cwHomeSwitchState = digitalRead(cw_home_switch);
-  ccwHomeSwitchState = digitalRead(ccw_home_switch);
-  tuneButtonState = digitalRead(tunePin);
+  cwHomeSwitchState         = digitalRead(cw_home_switch);
+  ccwHomeSwitchState        = digitalRead(ccw_home_switch);
+  tuneButtonState           = digitalRead(tunePin);
   slowManualTuneButtonState = digitalRead(slow_manualTunePin);
-  tuneUpButtonState = digitalRead(tune_upPin);
-  tuneDownButtonState = digitalRead(tune_downPin);
+  tuneUpButtonState         = digitalRead(tune_upPin);
+  tuneDownButtonState       = digitalRead(tune_downPin);
 
   lcdPrint(current_freq, fwd, rev, swr, radio_swr); // output the information to the LCD display.
 
   // Is someone pressing the rotary switch?
   if ((!digitalRead(PinSW))) {
-    virtualPosition = 50;
+      // virtualPosition = 50;
     while (!digitalRead(PinSW))
       delay(10);
     Serial.println("Reset");
