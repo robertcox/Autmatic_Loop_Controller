@@ -9,6 +9,10 @@ int slow_manualTunePin = 44;
 int tune_upPin = 43;
 int tune_downPin = 42;
 
+char line0[17]; 
+char line1[17];
+char line2[17]; 
+char line3[17];
 
 //Declare pin functions on Redboard
 #define stp 36
@@ -269,10 +273,13 @@ void loop() {
   if (radio.txState2()) {
 
 //    setXmitColor(255, 0, 0);  // red
-    radio_swr = radio.getSWR();            
-    fwd = analogRead(analogPinFwd);    // read the input pin
-    rev = analogRead(analogPinRev);    // read the input pin
-    swr = (fwd+rev)/(fwd-rev);
+    
+    if(radio.getMode() == FT817_MODE_FM){
+      radio_swr = radio.getSWR();            
+      fwd = analogRead(analogPinFwd);    // read the input pin
+      rev = analogRead(analogPinRev);    // read the input pin
+      swr = (fwd+rev)/(fwd-rev);
+    }
 //    showSWRled(radio_swr);     
   } else {     // if the radio is not transmitting, then set the variables to 0.
 //    setXmitColor(0, 255, 0);  // green
@@ -303,11 +310,12 @@ void moveStepper(int speed,bool direction)
 }
 
 int lcdPrint(unsigned long current_freq, int fwd, int rev, float swr, int radio_swr){
+    char str[7];
+    dtostrf((float)current_freq/100000, 7, 3, str);    
+    
     lcd.setCursor(0, 0);
-    lcd.print("Freq:           ");
-    lcd.setCursor(6, 0);
-    lcd.print((float)current_freq/100000,3);
-    lcd.print("Mhz");
+    snprintf(line0, sizeof line0, "%s%s%s", "Freq: ", str, "Mhz");
+    lcd.print(line0);
     lcd.setCursor(0, 1);
     lcd.print("Fwd:              ");
     lcd.setCursor(4, 1);
