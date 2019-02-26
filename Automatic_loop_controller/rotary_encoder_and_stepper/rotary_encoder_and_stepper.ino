@@ -143,9 +143,9 @@ void setup() {
   lcd.begin(numCols, numRows);          // Setup the LCD
   lcd.setCursor(0, 0);                  // Set the LCD's cursor to column 0 row 0.
   lcd.print("817 CAT Control");         // Display this message on the LCD.
-  radio.setFreq(current_freq);          // Set the FT-817's frequency to current_freq.
 //  radio.setMode(FT817_MODE_FM);         // Set the FT-817's mode to FM.
   current_freq = 1417500;               // Set the current frequency to the middle of the 20 meter band.
+  radio.setFreq(current_freq);          // Set the FT-817's frequency to current_freq.
 
   pinMode(cw_home_switch,INPUT);
   pinMode(ccw_home_switch,INPUT);
@@ -171,6 +171,7 @@ void loop() {
   tuneUpButtonState = digitalRead(tune_upPin);
   tuneDownButtonState = digitalRead(tune_downPin);
 
+  lcdPrint(current_freq, fwd, rev, swr, radio_swr); // output the information to the LCD display.
 
   // Is someone pressing the rotary switch?
   if ((!digitalRead(PinSW))) {
@@ -183,7 +184,7 @@ void loop() {
   // Auto tune functionality. Switch to FM mode, power to low, PTT
   // read the SWR and adjust the stepper motor to tune the capacitor.
   if (tuneButtonState==LOW) {
-    Serial.println("Tune Button has been pressed!");
+    // Serial.println("Tune Button has been pressed!");
     if(!pttFlag)
       mode = radio.getMode();               // Get the FT-817's current mode
     if(mode != FT817_MODE_FM){            // If the mode is not set to FM then set it to FM
@@ -193,7 +194,7 @@ void loop() {
     pttFlag = HIGH;
   }
   else if(pttFlag==HIGH && tuneButtonState==HIGH) {
-    Serial.println("Tune Button has been released!");
+    // Serial.println("Tune Button has been released!");
     radio.setPTTOff();
     delay(10);
     radio.setMode(mode);
@@ -266,6 +267,7 @@ void loop() {
   // If it is, then read the SWR of the radio and of the bridge.
   // and calculate the SWR from the forward and reverse voltage.
   if (radio.txState2()) {
+
 //    setXmitColor(255, 0, 0);  // red
     radio_swr = radio.getSWR();            
     fwd = analogRead(analogPinFwd);    // read the input pin
@@ -280,7 +282,6 @@ void loop() {
     swr = 0.0;
     radio_swr = 0;
   }
-  lcdPrint(current_freq, fwd, rev, swr, radio_swr); // output the information to the LCD display.
 }
 
 void moveStepper(int speed,bool direction)
