@@ -1,6 +1,91 @@
 #include <SoftwareSerial.h>
 #include <LiquidCrystal.h>
+#include "Nextion.h"
 #include "FT817.h"
+
+
+#define LED_OFF   7
+#define LED_ON    8
+#define RX_ON     1
+#define RX_OFF    2
+#define TX_OFF    4
+#define TX_ON     3
+#define TUNE_ON   5
+#define TUNE_OFF  6
+#define SWR0     25
+#define SWR1     26
+#define SWR2     27
+#define SWR3     28
+#define SWR4     29
+#define SWR5     30
+#define SWR6     31
+#define SWR7     32
+#define SWR8     33
+#define SWR9     34
+#define SWR10    35
+#define SWR11    36
+#define SWR12    37
+#define SWR13    38
+#define SWR14    39
+#define SWR15    40
+#define SWR16    41
+#define SWR17    42
+#define SWR18    43
+#define SWR19    44
+#define SWR20    45
+#define SWR21    46
+#define SWR22    47
+#define SWR23    48
+#define SWR24    49
+#define SWR25    50
+#define SWR26    51
+#define SWR27    52
+
+#define S0        9
+#define S1       10
+#define S2       11
+#define S3       12
+#define S4       13
+#define S5       14
+#define S6       15
+#define S7       16
+#define S8       17
+#define S9       18
+#define S10      19
+#define S11      20
+#define S12      21
+#define S13      22
+#define S14      23
+#define S15      24
+
+
+char tb[100] = {0};
+char buffer[100] = {0};
+int swr_number=25;
+int smeter_number=9;
+int number=0;
+
+// Declare your Nextion objects - Example (page id = 0, component id = 1, component name = "b0") 
+NexText    frequencyText =  NexText(   0,11, "frequencyText"); 
+NexText      swrFullText =  NexText(   0,18, "swrFullText"); 
+NexText         modeText =  NexText(   0,12, "modeText"); 
+NexText            sText =  NexText(   0,13, "sText"); 
+NexText          alcText =  NexText(   0,14, "alcText"); 
+NexText          pwrText =  NexText(   0,15, "pwrText"); 
+NexText          swrText =  NexText(   0,16, "swrText"); 
+NexText       smeterText =  NexText(   0,17, "smeterText"); 
+
+NexPicture            rx =  NexPicture(0, 2, "rx");
+NexPicture            tx =  NexPicture(0, 3, "tx");
+NexPicture          tune =  NexPicture(0, 4, "tune");
+NexPicture           swr =  NexPicture(0,10, "swr");
+NexPicture      limitOne =  NexPicture(0, 5, "limitOne");
+NexPicture      limitTwo =  NexPicture(0, 6, "limitTwo");
+NexPicture          slow =  NexPicture(0, 7, "slow");
+NexPicture           cap =  NexPicture(0, 8, "cap");
+NexPicture        smeter =  NexPicture(0, 9, "smeter");
+
+
 
 //Declare pin functions on the Sparkfun Easydriver
 #define stp 36     // step pin
@@ -48,14 +133,21 @@ int tuneDownButtonState = 0; // initialization of the Tune Down button
 int analogPinFwd = A14;      // forward voltage from the SWR bridge is set to pin A14
 int analogPinRev = A15;      // reverse voltage from the SWR bridge is set to pin A15
 
-bool  pttFlag = LOW;         // initialization of the PTT Flag
-double    fwd = 0;           // variable to store the forward voltage value from the SWR bridge.
-double    rev = 0;           // variable to store the reverse voltage value from the SWR bridge.
-float     swr = 0.0;         // The calculated SWR will be a float
-int radio_swr = 0;           // the FT-817 will report the values of the TX meter.
+bool   pttFlag = LOW;         // initialization of the PTT Flag
+double     fwd = 0;           // variable to store the forward voltage value from the SWR bridge.
+double     rev = 0;           // variable to store the reverse voltage value from the SWR bridge.
+float calc_swr = 0.0;         // The calculated SWR will be a float
+char  radio_swr[2];           // the FT-817 will report the values of the TX meter.
                              // The SWR will be reported as an integer number.
                              // From my experience this integer correlates to the number of bars
                              // that are displayed on the FT-817's SWR meter.  
+char radio_alc[2];
+char radio_pwr[2];
+char radio_s[5];
+int radio_smeter;
+const char* s_letter = "s";
+char* s_number = "0";
+char* smeterPic;
                              
 unsigned long current_freq;  // variable that contains the FT-817's current frequency. 
 byte mode;                   // This is a variable to store the FT-817's mode.
@@ -127,6 +219,7 @@ void setup() {
   
   // Just whilst we debug, view output on serial monitor
   Serial.begin(9600);
+  nexInit();
 
   // Rotary encoder pulses are INPUTs
   pinMode( PinA, INPUT);
@@ -152,6 +245,25 @@ void setup() {
   current_freq = 1417500;               // Set the current frequency to the middle of the 20 meter band.
   radio.setFreq(current_freq);          // Set the FT-817's frequency to current_freq.
 
+    rx.setPic(RX_ON);
+    tx.setPic(TX_OFF);
+    tune.setPic(TUNE_OFF);
+    swr.setPic(SWR0);
+    limitOne.setPic(LED_OFF);
+    limitTwo.setPic(LED_OFF);
+    slow.setPic(LED_OFF);
+    cap.setPic(LED_OFF);
+    smeter.setPic(S0);
+    swrFullText.setText("0"); 
+    modeText.setText("FM"); 
+    sText.setText("00"); 
+    alcText.setText("9"); 
+    pwrText.setText(""); 
+    swrText.setText("0"); 
+    smeterText.setText("0"); 
+    dtostrf(current_freq,7,4,buffer);
+    frequencyText.setText(buffer);
+
   // Ready to go!
   Serial.println("Start");
   delay(100);
@@ -168,7 +280,11 @@ void loop() {
   tuneUpButtonState         = digitalRead(tune_upPin);
   tuneDownButtonState       = digitalRead(tune_downPin);
 
-  lcdPrint(current_freq, fwd, rev, swr, radio_swr); // output the information to the LCD display.
+  lcdPrint(current_freq, fwd, rev, calc_swr, radio_swr); // output the information to the LCD display.
+
+    const char str_f[] = "xx.xxxx";
+    dtostrf((float)current_freq/100000, sizeof(str_f), 5, str_f);    
+    frequencyText.setText(str_f);
 
   // Is someone pressing the rotary switch?
   if ((!digitalRead(PinSW))) {
@@ -187,15 +303,25 @@ void loop() {
     if(mode != FT817_MODE_FM){            // If the mode is not set to FM then set it to FM
       radio.setMode(FT817_MODE_FM);  
     }
+    smeter.setPic(S0);
+    rx.setPic(RX_OFF);
+    tx.setPic(TX_ON);
+    tune.setPic(TUNE_ON);
     radio.setPTTOn();
     pttFlag = HIGH;
-  }
+   }
   else if(pttFlag==HIGH && tuneButtonState==HIGH) {
     // Serial.println("Tune Button has been released!");
+    rx.setPic(RX_ON);
+    tx.setPic(TX_OFF);
+    tune.setPic(TUNE_OFF);
     radio.setPTTOff();
     delay(10);
     radio.setMode(mode);
     pttFlag = LOW;  
+    alcText.setText("0");
+    swrText.setText("0");
+    swr.setPic(SWR0); 
   }
 
   // Manual tune functionality.
@@ -205,8 +331,8 @@ void loop() {
   // unless it is pushed with the Tune Up or Tune Down 
   // buttons then the stepper will tune slowly.
   if (slowManualTuneButtonState == HIGH) {
+    slow.setPic(LED_OFF);
     if (tuneUpButtonState == HIGH) {
-      
     } else {
       Serial.println("Only the Tune Up Button has been pressed!");
       if (cwHomeSwitchState == HIGH){
@@ -218,7 +344,6 @@ void loop() {
       }
     }
     if (tuneDownButtonState == HIGH) {
-      
     } else {
       Serial.println("Only the Tune Down Button has been pressed!");
       if (ccwHomeSwitchState == HIGH){
@@ -226,13 +351,12 @@ void loop() {
         moveStepper(50,LOW);
       }
       else {
-        Serial.println("CCW Limit switch is ENGAGED - the stepper will not move CCW."); 
+        Serial.println("CCW Limit switch is ENGAGED - the stepper will not move CCW.");
       }
-
     }
   } else {
+    slow.setPic(LED_ON);
     if (tuneUpButtonState == HIGH) {
-
     } else {
       Serial.println("Slow Manual Tune && Tune Up Button have been pressed!");
       if (cwHomeSwitchState == HIGH){
@@ -244,7 +368,6 @@ void loop() {
       }
     }
     if (tuneDownButtonState == HIGH) {
-      
     } else {
       Serial.println("Slow Manual Tune && Tune Down Buttons have been pressed!");
       if (ccwHomeSwitchState == HIGH){
@@ -257,6 +380,21 @@ void loop() {
     }
   }
 
+  if(cwHomeSwitchState == HIGH){
+    limitOne.setPic(LED_OFF);    
+  } 
+  else {
+    limitOne.setPic(LED_ON);        
+  }
+   
+  if(ccwHomeSwitchState == HIGH){
+    limitTwo.setPic(LED_OFF);    
+  } 
+  else {
+    limitTwo.setPic(LED_ON);        
+  }
+
+
   current_freq = radio.getFreqMode("freq"); // Get the FT-817's current frequency
   
 
@@ -268,10 +406,23 @@ void loop() {
 //    setXmitColor(255, 0, 0);  // red
     
     if(radio.getMode() == FT817_MODE_FM){
-      radio_swr = radio.getSWR();            
+      itoa(radio.getSWR(),radio_swr,2);            
       fwd = analogRead(analogPinFwd);    // read the input pin
       rev = analogRead(analogPinRev);    // read the input pin
-      swr = (fwd+rev)/(fwd-rev);
+      calc_swr = (fwd+rev)/(fwd-rev);
+      itoa(radio.getALC(),radio_alc,2);
+      itoa(radio.getPWR(),radio_pwr,2);
+      Serial.print("SWR: "); Serial.println(radio_swr);
+      Serial.print("PWR: "); Serial.println(radio_pwr);
+      Serial.print("ALC: "); Serial.println(radio_alc);
+      Serial.println("-----------------------");
+      alcText.setText(radio_alc);
+      swrText.setText(radio_swr);
+      pwrText.setText(radio_pwr); 
+      smeter.setPic(S0);
+      rx.setPic(RX_OFF);
+      tx.setPic(TX_ON);
+      tune.setPic(TUNE_ON);
     }
 //    showSWRled(radio_swr);     
   } else {     // if the radio is not transmitting, then set the variables to 0.
@@ -279,8 +430,74 @@ void loop() {
 //    setSWRColor(220, 220, 0);  // red
     rev = 0;
     fwd = 0;
-    swr = 0.0;
-    radio_swr = 0;
+    calc_swr = 0.0;
+//    radio_swr = 0;
+    radio_smeter = radio.getRxStatus(radio_s);
+    
+//    smeterPic= malloc(strlen(s_letter)+strlen(radio_smeter)+1);    
+//    strcpy(smeterPic, s_letter ); 
+//    strcat(smeterPic, radio_smeter);
+//    Serial.print("S Meter: "); Serial.println(smeterPic);
+    
+switch (radio_smeter) {
+  case 1:
+    smeter.setPic(S1);
+    break;
+  case 2:
+    smeter.setPic(S2);
+    break;
+  case 3:
+    smeter.setPic(S3);
+    break;
+  case 4:
+    smeter.setPic(S4);
+    break;
+  case 5:
+    smeter.setPic(S5);
+    break;
+  case 6:
+    smeter.setPic(S6);
+    break;
+  case 7:
+    smeter.setPic(S7);
+    break;
+  case 8:
+    smeter.setPic(S8);
+    break;
+  case 9:
+    smeter.setPic(S9);
+    break;
+  case 10:
+    smeter.setPic(S10);
+    break;
+  case 11:
+    smeter.setPic(S11);
+    break;
+  case 12:
+    smeter.setPic(S12);
+    break;
+  case 13:
+    smeter.setPic(S13);
+    break;
+  case 14:
+    smeter.setPic(S14);
+    break;
+  case 15:
+    smeter.setPic(S15);
+    break;
+  default:
+    smeter.setPic(S0);
+    break;
+}
+
+    
+    sText.setText(radio_s);        // this is the 6 type of text. 
+    smeterText.setText(radio_s); // this is the S6 text.
+    
+      Serial.print("radio_smeter: "); Serial.println(radio_smeter);
+      Serial.print("radio_s: "); Serial.println(radio_s);
+      Serial.println("-----------------------");
+
   }
 }
 
@@ -302,13 +519,15 @@ void moveStepper(int speed,bool direction)
 
 }
 
-int lcdPrint(unsigned long current_freq, int fwd, int rev, float swr, int radio_swr){
-    char str[7];
-    dtostrf((float)current_freq/100000, 7, 3, str);    
+int lcdPrint(unsigned long current_freq, int fwd, int rev, float calc_swr, int radio_swr){
+    const char str[] = "xx.xxx";
+    dtostrf((float)current_freq/100000, sizeof(str), 3, str);    
     
     lcd.setCursor(0, 0);
     snprintf(line0, sizeof line0, "%s%s%s", "Freq: ", str, "Mhz");
     lcd.print(line0);
+    lcd.setCursor(13,0);
+    lcd.print("Mhz");
     lcd.setCursor(0, 1);
     lcd.print("Fwd:              ");
     lcd.setCursor(4, 1);
@@ -318,7 +537,7 @@ int lcdPrint(unsigned long current_freq, int fwd, int rev, float swr, int radio_
     lcd.print(rev);
     lcd.setCursor(0, 2);
     lcd.print("Bridge SWR: ");
-    lcd.print(swr);
+    lcd.print(calc_swr);
     lcd.setCursor(0, 3);
     lcd.print("FT-817 SWR: ");
     lcd.print(radio_swr);
